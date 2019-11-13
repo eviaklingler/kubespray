@@ -11,10 +11,45 @@
 - name: Kubernetes Apps | Start dashboard
   kube:
     name: "{{ item.item.name }}"
-    namespace: "kube-system"
+    namespace: "kubernetes-dashboard"
     kubectl: "{{ bin_dir }}/kubectl"
     resource: "{{ item.item.type }}"
     filename: "{{ kube_config_dir }}/{{ item.item.file }}"
     state: "latest"
   with_items: "{{ manifests.results }}"
+  when: inventory_hostname == groups['kube-master'][0]
+
+- name: Kubernetes Apps | Lay down dashboard admin service account template
+  template:
+    src: "{{ item.file }}.j2"
+    dest: "{{ kube_config_dir }}/{{ item.file }}"
+  with_items:
+    - { file: dashboard_admin.yml, type: deploy, name: admin-user }
+  register: manifests
+  when: inventory_hostname == groups['kube-master'][0]
+
+- name: Kubernetes Apps | Create Dashboard Service Account
+  kube:
+    name: "{{ item.item.name }}"
+    namespace: "kubernetes-dashboard"
+    kubectl: "{{ bin_dir }}/kubectl"
+    resource: "{{ item.item.type }}"
+    filename: "{{ kube_config_dir }}/{{ item.item.file }}"
+    state: "latest"
+  with_items: "{{ manifests.results }}"
+  when: inventory_hostname == groups['kube-master'][0]
+
+- name: get login token for dashboard
+  shell: kubectl -n kubernetes-dashboard describe secret $(kubectl -n kubernetes-dashboard get secret | awk '/^admin-user-token/{print $1}') | awk '$1=="token:"{print $2}'
+  register: dashboard_token
+  when: inventory_hostname == groups['kube-master'][0]
+    
+- name: show dashboard instructions
+  debug: 
+    msg: "Run kubectl proxy and your dashboard is available at https://{{ localhost:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/#!/login"
+  when: inventory_hostname == groups['kube-master'][0]
+
+- name: show dashboard token
+  debug: 
+    msg: "The dashboard login token is: {{ dashboard_token.stdout_lines[0] }}"
   when: inventory_hostname == groups['kube-master'][0]
